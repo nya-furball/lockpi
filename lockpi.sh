@@ -1,4 +1,8 @@
-#!/bin/sh
+#!/bin/bash
+
+# modified shell to avoid bugs for now
+# return to sh once posix compliant
+# #!/bin/sh
 
 # Lockpi Installer:
 # Headlessly install linux distributions through a x86 computer onto
@@ -10,6 +14,7 @@
 # any damage incurred while using this script should you chose to use it.
 
 # TODO
+# POSIX COMPLIANCE! (read -. and echo -.)
 # detect_version(); # detect distro version
 # parse_img(); # intelligent decompression
 # Other distro support:
@@ -33,11 +38,12 @@
 
 
 
-# check root
-if [ "$EUID" -ne 0 ]
-  then echo "Please run as root"
-  exit
-fi
+checkroot(){
+	if [ "$EUID" -ne 0 ]
+		then echo "Please run as root";
+		exit;
+	fi
+}
 
 # VARS
 TARGET_BLOCK_DEVICE="";
@@ -67,10 +73,25 @@ prompts(){
 	echo "LIST OF BLOCK DEVICES:";
 	lsblk -i -o 'NAME,LABEL,MODEL,SIZE,TYPE';
 	read -e -p "Enter full block device path to install (/dev/???): " TARGET_BLOCK_DEVICE;
-	read -s -p "Enter LUKS passphrase: " LUKS_PASSPHRASE;
+	
+	# passphrase entry and confirmation loop
+	LUKS_PASSPHRASE="";
+	local LUKS_PASSPHRASE_BUFFER="";
+	stty -echo;
+	while [ -z "${LUKS_PASSPHRASE}" -o "${LUKS_PASSPHRASE}" != "${LUKS_PASSPHRASE_BUFFER}" ]; do {
+		printf "Enter LUKS passphrase: " 
+		read LUKS_PASSPHRASE_BUFFER;
+		printf "\n";
+		
+		printf "Confirm LUKS passphrase: " 
+		read LUKS_PASSPHRASE;
+		printf "\n";
+	}
+	done;
+	stty echo;
 	
 	# confirmation
-	echo -e "\nInstallation target: ${TARGET_BLOCK_DEVICE}";
+	printf "\nInstallation target: ${TARGET_BLOCK_DEVICE}\n";
 	echo "WARNING: ALL DATA WILL BE LOST ON TARGET.";
 	confirmation "Type UPPER CASE YES to proceed: " "YES";
 	if [ $? -eq "1" ]; then {
@@ -258,7 +279,10 @@ cleanup(){
 
 
 # distro specific scripts
-CHROOT_SCRIPT_RASPIOS='#!/bin/sh
+CHROOT_SCRIPT_RASPIOS='#!/bin/bash
+
+# return to sh once POSIX compliant
+# #!/bin/sh
 
 # TODO:
 # Auto setup initramfs images and different versions using initramfs_config.txt
@@ -303,15 +327,20 @@ install_configure_setup(){
 
 # run distro specific chroot setup
 armchroot_run_setup(){
-	LANG=C chroot "${MOUNTDIR}/ROOT" qemu-arm-static /bin/sh -c ${CHROOT_SCRIPT_LOCATION};
+	# modified, return to sh once POSIX compliant
+	#LANG=C chroot "${MOUNTDIR}/ROOT" qemu-arm-static /bin/sh -c ${CHROOT_SCRIPT_LOCATION};
+	LANG=C chroot "${MOUNTDIR}/ROOT" qemu-arm-static /bin/bash -c ${CHROOT_SCRIPT_LOCATION};
 }
 
 
 
 
 # main();
+checkroot;
 prereq;
 prompts;
+
+# disk setup
 format;
 get_uuids;
 mount_disk;
