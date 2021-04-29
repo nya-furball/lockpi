@@ -14,7 +14,9 @@
 # any damage incurred while using this script should you chose to use it.
 
 # TODO
-# POSIX COMPLIANCE! (read -. and echo -.)
+# backup configs
+#	actual script
+#	chroot script
 # detect_version(); # detect distro version
 # parse_img(); # intelligent decompression
 # Other distro support:
@@ -30,20 +32,30 @@
 # nuke resize.sh on initial install
 # LUKS max iterations on pi hardware
 # Arch comptiability
+#	fix no crypt_pi error after unlock
 # command line args instead of prompt
 
 
 
 # TODO TESTS:
+# POSIX COMPLIANCE! (read -. and echo -.)
 
-
-
+# HELPER FUNCTIONS
 checkroot(){
 	if [ "$EUID" -ne 0 ]
 		then echo "Please run as root";
 		exit;
 	fi
 }
+
+# POSIX compliant read -p "" $VAR
+# prototype:
+#	read_p "PROMPT" VARIABLE NAME
+read_p(){
+	printf "$1";
+	read $2;
+}
+
 
 # VARS
 TARGET_BLOCK_DEVICE="";
@@ -69,10 +81,11 @@ prompts(){
 	# used for parsing, TODO
 	#read -e -p "Path to installation image: " IMAGE;
 	
-	read -e -p "Path to decompressed installation image (.img): " IMAGE_IMG;
+	read_p "Path to decompressed installation image (.img): " IMAGE_IMG;
+	
 	echo "LIST OF BLOCK DEVICES:";
 	lsblk -i -o 'NAME,LABEL,MODEL,SIZE,TYPE';
-	read -e -p "Enter full block device path to install (/dev/???): " TARGET_BLOCK_DEVICE;
+	read_p "Enter full block device path to install (/dev/???): " TARGET_BLOCK_DEVICE;
 	
 	# passphrase entry and confirmation loop
 	LUKS_PASSPHRASE="";
@@ -104,14 +117,9 @@ prompts(){
 # confirmation "PROMPT" "EXPECTED_RESPONSE";
 confirmation(){
 	local INPUT;
-	read -p "$1" INPUT
-	if [ -z "$(echo ${INPUT}|grep $2)" ]; then {
-		return 1;
-	} ;
-	else {
-		return 0;
-	}
-	fi;
+	printf "$1";
+	read INPUT;
+	return $(printf %s "$INPUT" | grep -Fq "$2");
 }
 
 # prototype:
@@ -125,7 +133,8 @@ detect_version(){
 
 # partitioning
 format(){
-	echo -e "o\np\nn\np\n1\n\n+200M\nt\nc\nn\np\n2\n\n\nw\n" | fdisk "${TARGET_BLOCK_DEVICE}";
+	#echo -e "o\np\nn\np\n1\n\n+200M\nt\nc\nn\np\n2\n\n\nw\n" | fdisk "${TARGET_BLOCK_DEVICE}";
+	printf "o\np\nn\np\n1\n\n+200M\nt\nc\nn\np\n2\n\n\nw\n\n" | fdisk "${TARGET_BLOCK_DEVICE}";
 	if [ -z $(echo $TARGET_BLOCK_DEVICE|grep mmcblk) ]; then {
 		BOOTPART="${TARGET_BLOCK_DEVICE}1";
 		ROOTPART="${TARGET_BLOCK_DEVICE}2";
@@ -207,16 +216,13 @@ armchroot(){
 }
 
 # installation
-
+IMAGE_ARCH="";
 # this is legacy code. borked.
 install_arch(){
-	bsdtar -xpf "${IMAGE}" -C "${MOUNTDIR}/ROOT";
+	bsdtar -xzpf "${IMAGE_ARCH}" -C "${MOUNTDIR}/ROOT";
 	mv ${MOUNTDIR}/ROOT/boot/* "${MOUNTDIR}/BOOT";
-	umount "${MOUNTDIR}/BOOT";
-	mount "${BOOTPART}" "${MOUNTDIR}/ROOT/boot/";
-
-	# borked
-	sed -E -e 's/^HOOKS=[(](.*)[)]/HOOKS=(\1 encrypt)/' -i "${MOUNTDIR}/ROOT/etc/mkinitcpio.conf"
+	#umount "${MOUNTDIR}/BOOT";
+	#mount "${BOOTPART}" "${MOUNTDIR}/ROOT/boot/";
 }
 
 # parse and decompress selected image
@@ -255,7 +261,8 @@ install_configure_disks(){
 	sed -E -e "s/.*([ \t]+\/[ \t]+.*)/UUID=${UUID_LUKS_MAP}\1/" -i "${MOUNTDIR}/ROOT/etc/fstab";
 	sed -E -e "s/.*([ \t]+\/boot[/]*.*[ \t]+.*)/PARTUUID=${UUID_BOOTPART}\1/" -i "${MOUNTDIR}/ROOT/etc/fstab";
 	# crypttab
-	echo -e "${LUKS_MAPPER}\tPARTUUID=${UUID_ROOTPART}\tnone\tluks" |tee "${MOUNTDIR}/ROOT/etc/crypttab";
+	#echo -e "${LUKS_MAPPER}\tPARTUUID=${UUID_ROOTPART}\tnone\tluks" |tee "${MOUNTDIR}/ROOT/etc/crypttab";
+	printf "${LUKS_MAPPER}\tPARTUUID=${UUID_ROOTPART}\tnone\tluks\n" |tee "${MOUNTDIR}/ROOT/etc/crypttab";
 }
 
 get_uuids(){
@@ -306,16 +313,36 @@ sed -E -e "s/^#CRYPTSETUP=/CRYPTSETUP=y/" -i /etc/cryptsetup-initramfs/conf-hook
 VERSION="";
 echo "The following kernel versions are available: ";
 ls /lib/modules/;
-read -p "Select kernel version for initrd: " VERSION;
+#read -p "Select kernel version for initrd: " VERSION;
+printf "Select kernel version for initrd: ";
+read VERSION;
 
 # generate and use initramfs
-echo -e "\n# use initrd to unlock encrypted root\ninitramfs initramfs.gz followkernel" |tee -a /boot/config.txt;
+#echo -e "\n# use initrd to unlock encrypted root\ninitramfs initramfs.gz followkernel" |tee -a /boot/config.txt;
+printf "\n# use initrd to unlock encrypted root\ninitramfs initramfs.gz followkernel\n" |tee -a /boot/config.txt;
 mkinitramfs -o /boot/initramfs.gz "${VERSION}";
 
 # disable initial resize
 sed -E -e "s/ [!-z]*init_resize.sh//" -i /boot/cmdline.txt;
 rm /etc/init.d/resize*fs_once /etc/rc3.d/S01resize*fs_once;
 '
+
+CHROOT_SCRIPT_ARCH='#!/bin/sh
+# initialize pacman and install cryptsetup
+#pacman-key --init;
+#pacman-key --populate archlinuxarm;
+#pacman -Suy --noconfirm;
+#pacman -S --noconfirm cryptsetup;
+
+# setup cryptsetup and initrd
+cp -a /etc/mkinitcpio.conf /etc/mkinitcpio.conf_bak;
+sed -E -e "s/^HOOKS=[(](.*)[)]/HOOKS=(\1 encrypt)/" -i /etc/mkinitcpio.conf;
+INITRD_KERNEL=$(ls /lib/modules|sed -E -e "/extramodule/d");
+rm /boot/initramfs-linux.img;
+mkinitcpio -k "${INITRD_KERNEL}" -g /boot/initramfs-linux.img;
+pkill -i gpg;
+'
+
 
 # used with version detection. 
 # Only raspios supported for now
@@ -347,9 +374,19 @@ mount_disk;
 
 # distro common installation
 install_img;
+
+# debug, testing archinstall
+#install_arch;
+#echo "install dir: ${MOUNTDIR}";
+#read -p "inspect arch install";
+
 install_configure_disks;
 # distro specific setup
 install_configure_setup;
+
+# debug: testing archinstall
+#echo "${CHROOT_SCRIPT_ARCH}" > "${CHROOT_SCRIPT_LOCATION}";
+#read -p "inspect archchroot script";
 
 # chroot and run distro scripts in chroot
 armchroot_prep;
