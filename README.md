@@ -7,7 +7,7 @@ This software is in beta testing. There will be bugs. Please kindly file an issu
 ### Prerequisites:
 For the script to work, you need the following software installed:<br/>
 ```
-util-linux sed e2fsprogs dosfstools cryptsetup qemu-user-static rsync kmod
+util-linux sed e2fsprogs dosfstools cryptsetup qemu-user-static rsync kmod diceware
 ```
 Use either `apt`, `dnf` or your distro's package manager to install them. <br/><br/>
 
