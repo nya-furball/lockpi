@@ -14,11 +14,9 @@
 # any damage incurred while using this script should you chose to use it.
 
 # TODO
-# Sane cryto setup
-#	Diceware random first time keyslot integration
 # FUCKING POSIX COMPLIANCE
-#	printf $VAR to printf %s $VAR or avoid entirely
 #	check for /run/shm
+#	blkid and lsblk for get_uuid()
 # Support PC distros:
 #	Debian
 #		WHERE THE FUCK IS ADIANTUM?!
@@ -51,7 +49,6 @@
 
 
 # TODO TESTS:
-# POSIX ???
 
 
 # HELPER FUNCTIONS
@@ -66,7 +63,7 @@ checkroot(){
 # prototype:
 #	read_p "PROMPT" VARIABLE NAME
 read_p(){
-	printf "$1";
+	printf "%s" "$1";
 	read $2;
 }
 
@@ -94,14 +91,21 @@ prereq(){
 	#done;
 	
 	# check if relevant programs exist
-	local prereqs="lsblk blkid sed mount umount mke2fs mkfs.fat cryptsetup qemu-arm-static rsync kmod diceware";
-	local prereqLength=$(echo "${prereqs}"|wc -w);
+	local prereqs="lsblk blkid sed mount umount mke2fs mkfs.fat cryptsetup qemu-arm-static rsync kmod diceware blkdiscard";
+	#local prereqLength=$(echo "${prereqs}"|wc -w);
+	local prereqLength=$(printf "%s" "${prereqs}"|wc -w);
 	local currentItem="";
-	for i in $(seq 1 ${prereqLength}) ; do {
-		currentItem="$(echo ${prereqs}| cut -f $i -d' ')";
-		which "${currentItem}" 1>/dev/null || { printf "\nPrerequesites not met!\nYou don't have ${currentItem}.\nPlease check you have the following:\n${prereqs}\n\n"; exit 1; };
+	#for i in $(seq 1 ${prereqLength}) ; do {
+	#	currentItem="$(echo ${prereqs}| cut -f $i -d' ')";
+	#	which "${currentItem}" 1>/dev/null || { printf "\nPrerequesites not met!\nYou don't have ${currentItem}.\nPlease check you have the following:\n${prereqs}\n\n"; exit 1; };
+	#}
+	#done;
+	for currentItem in ${prereqs}; do {
+		#which "${currentItem}" 1>/dev/null || { printf "\nPrerequesites not met!\nYou don't have ${currentItem}.\nPlease check you have the following:\n${prereqs}\n\n"; exit 1; };
+		which "${currentItem}" 1>/dev/null || { printf "\nPrerequesites not met\!\nYou don't have %s.\nPlease check you have the following:\n%s\n\n" "${currentItem}" "${prereqs}"; exit 1; };
+
 	}
-	done;
+	done
 	
 	# check if kernel supports adiantum cipher
 	# Note:
@@ -162,21 +166,22 @@ prompts(){
 	LUKS_PASSPHRASE="$(diceware -w en_eff -d' ' -n 10 --no-caps)";
 	
 	# confirmation
-	printf "\nInstallation target: ${TARGET_BLOCK_DEVICE}\n";
-	echo "Installation image: ${IMAGE_IMG}";
+	printf "\nInstallation target: %s\n" "${TARGET_BLOCK_DEVICE}";
+	printf "Installation image: %s\n" "${IMAGE_IMG}";
 	echo "WARNING: ALL DATA WILL BE LOST ON TARGET.";
-	confirmation "Type UPPER CASE YES to proceed: " "YES";
-	if [ $? -eq "1" ]; then {
-		exit 1;
-	}
-	fi;
+	#confirmation "Type UPPER CASE YES to proceed: " "YES";
+	#if [ $? -eq "1" ]; then {
+	#	exit 1;
+	#}
+	#fi;
+	if ! confirmation "Type UPPER CASE YES to proceed: " "YES"; then exit 1; fi;
 }
 
 # prototype:
 # confirmation "PROMPT" "EXPECTED_RESPONSE";
 confirmation(){
 	local INPUT;
-	printf "$1";
+	printf "%s" "$1";
 	#read INPUT;
 	#printf %s "$INPUT" | grep -Fq "$2";
 	#return $?;
@@ -197,19 +202,27 @@ detect_version(){
 USE_LUKS=1;
 LUKS_MAPPER="crypt_pi";
 format(){
-	#echo -e "o\np\nn\np\n1\n\n+200M\nt\nc\nn\np\n2\n\n\nw\n" | fdisk "${TARGET_BLOCK_DEVICE}";
-	printf "o\np\nn\np\n1\n\n+200M\nt\nc\nn\np\n2\n\n\nw\n\n" | fdisk "${TARGET_BLOCK_DEVICE}";
-	if [ -z $(echo $TARGET_BLOCK_DEVICE|grep mmcblk) ]; then {
+	# detect if device is SD/MMC
+	if [ -z "$(printf ${TARGET_BLOCK_DEVICE} |grep mmcblk)" ]; then {
 		BOOTPART="${TARGET_BLOCK_DEVICE}1";
 		ROOTPART="${TARGET_BLOCK_DEVICE}2";
 	} ;
 	else {
+		blkdiscard -f "${TARGET_BLOCK_DEVICE}";
 		BOOTPART="${TARGET_BLOCK_DEVICE}p1";
 		ROOTPART="${TARGET_BLOCK_DEVICE}p2";
 	} 
 	fi;
+	
+	# create partitions
+	#echo -e "o\np\nn\np\n1\n\n+200M\nt\nc\nn\np\n2\n\n\nw\n" | fdisk "${TARGET_BLOCK_DEVICE}";
+	printf "o\np\nn\np\n1\n\n+200M\nt\nc\nn\np\n2\n\n\nw\n\n" | fdisk "${TARGET_BLOCK_DEVICE}";
+
 	mkfs.vfat "${BOOTPART}";
-	if [ -z $(echo ${USE_LUKS}|grep 1) ]; then {
+	#if [ -z $(echo ${USE_LUKS}|grep 1) ]; then {
+	#	mkfs.ext4 "${ROOTPART}";
+	#} ;
+	if [ "${USE_LUKS}" != 1 ]; then {
 		mkfs.ext4 "${ROOTPART}";
 	} ;
 	else {
@@ -226,10 +239,12 @@ format(){
 		#	timecost = 4; most common settings from benchmarks across x86 and pi
 		#	memory = 200MB; pi0/w only has 256MB and we have initrd
 		#	parallel = 1; pi0/w only has 1 core. more than 1 will FAIL to unlock.
-		echo ${LUKS_PASSPHRASE} | cryptsetup luksFormat --force-password --type=luks2 --sector-size=4096 -c xchacha12,aes-adiantum-plain64 -s 256 -h sha512 --pbkdf argon2i --pbkdf-memory 200000 --pbkdf-parallel 1 --pbkdf-force-iterations 4 "${ROOTPART}";
+		#echo ${LUKS_PASSPHRASE} | cryptsetup luksFormat --force-password --type=luks2 --sector-size=4096 -c xchacha12,aes-adiantum-plain64 -s 256 -h sha512 --pbkdf argon2i --pbkdf-memory 200000 --pbkdf-parallel 1 --pbkdf-force-iterations 4 "${ROOTPART}";
+		printf "%s\n" "${LUKS_PASSPHRASE}"| cryptsetup luksFormat --force-password --type=luks2 --sector-size=4096 -c xchacha12,aes-adiantum-plain64 -s 256 -h sha512 --pbkdf argon2i --pbkdf-memory 200000 --pbkdf-parallel 1 --pbkdf-force-iterations 4 "${ROOTPART}";
 		
 		#cryptsetup open "${ROOTPART}" "${LUKS_MAPPER}";
-		echo ${LUKS_PASSPHRASE} | cryptsetup open "${ROOTPART}" "${LUKS_MAPPER}";
+		#echo ${LUKS_PASSPHRASE} | cryptsetup open "${ROOTPART}" "${LUKS_MAPPER}";
+		printf "%s\n" "${LUKS_PASSPHRASE}"| cryptsetup open "${ROOTPART}" "${LUKS_MAPPER}";
 		mkfs.ext4 "/dev/mapper/${LUKS_MAPPER}";
 	}
 	fi;
@@ -240,7 +255,10 @@ mount_disk(){
 	mkdir "${MOUNTDIR}/BOOT" "${MOUNTDIR}/ROOT";
 	chmod og-rwx "${MOUNTDIR}/BOOT" "${MOUNTDIR}/ROOT";
 	mount "${BOOTPART}" "${MOUNTDIR}/BOOT";
-	if [ -z $(echo ${USE_LUKS}|grep 1) ]; then {
+	#if [ -z $(echo ${USE_LUKS}|grep 1) ]; then {
+	#	mount "${ROOTPART}" "${MOUNTDIR}/ROOT";
+	#} ;
+	if [ "${USE_LUKS}" != 1 ]; then {
 		mount "${ROOTPART}" "${MOUNTDIR}/ROOT";
 	} ;
 	else {
@@ -256,7 +274,10 @@ armchroot_prep(){
 	mount --bind /dev/shm "${MOUNTDIR}/ROOT/dev/shm";
 	mount -t sysfs sysfs "${MOUNTDIR}/ROOT/sys";
 	mount -t proc proc "${MOUNTDIR}/ROOT/proc";
-	if [ -z "$(echo $isDebian|grep 1)" ]; then {
+	#if [ -z "$(echo $isDebian|grep 1)" ]; then {
+	#	mount --bind "${MOUNTDIR}/BOOT" "${MOUNTDIR}/ROOT/boot";
+	#} ;
+	if [ "${isDebian}" != 1 ]; then {
 		mount --bind "${MOUNTDIR}/BOOT" "${MOUNTDIR}/ROOT/boot";
 	} ;
 	else {
@@ -273,7 +294,10 @@ armchroot_cleanup(){
 	umount "${MOUNTDIR}/ROOT/dev";
 	umount "${MOUNTDIR}/ROOT/sys";
 	umount "${MOUNTDIR}/ROOT/proc";
-	if [ -z "$(echo $isDebian|grep 1)" ]; then {
+	#if [ -z "$(echo $isDebian|grep 1)" ]; then {
+	#	umount "${MOUNTDIR}/ROOT/boot";
+	#} ;
+	if [ "${isDebian}" != 1 ]; then {
 		umount "${MOUNTDIR}/ROOT/boot";
 	} ;
 	else {
@@ -285,8 +309,10 @@ armchroot_cleanup(){
 	rm "${MOUNTDIR}/ROOT/usr/bin/qemu-arm-static";
 }
 armchroot(){
-	echo "Dropping into a shell on installation target.";
-	echo 'Type "exit" to end customization in chroot shell: ';
+	#echo "Dropping into a shell on installation target.";
+	#echo 'Type "exit" to end customization in chroot shell: ';
+	printf 'Dropping into a shell on installation target.\n';
+	printf 'Type "exit" to end customization in chroot shell: \n';
 	LANG=C chroot "${MOUNTDIR}/ROOT" ; #qemu-arm-static /bin/bash;
 }
 
@@ -337,7 +363,7 @@ install_configure_disks(){
 	sed -E -e "s/.*([ \t]+\/boot[/]*.*[ \t]+.*)/PARTUUID=${UUID_BOOTPART}\1/" -i "${MOUNTDIR}/ROOT/etc/fstab";
 	# crypttab
 	#echo -e "${LUKS_MAPPER}\tPARTUUID=${UUID_ROOTPART}\tnone\tluks" |tee "${MOUNTDIR}/ROOT/etc/crypttab";
-	printf "${LUKS_MAPPER}\tPARTUUID=${UUID_ROOTPART}\tnone\tluks\n" |tee "${MOUNTDIR}/ROOT/etc/crypttab";
+	printf "%s\tPARTUUID=%s\tnone\tluks\n" "${LUKS_MAPPER}" "${UUID_ROOTPART}" |tee "${MOUNTDIR}/ROOT/etc/crypttab";
 }
 
 get_uuids(){
@@ -359,7 +385,7 @@ cleanup(){
 
 cleanup_interrupt(){
 	printf "\nInterrupted. Cleaning up...\n";
-	echo "Installation NOT complete.";
+	printf "Installation NOT complete.\n";
 	if [ "${MOUNTDIR}" = "" ]; then {
 		cryptsetup close "${LUKS_MAPPER}";
 		exit 1;
@@ -449,7 +475,8 @@ pkill -i gpg;
 # Only raspios supported for now
 CHROOT_SCRIPT_LOCATION="/dev/shm/distro_install.sh";
 install_configure_setup(){
-	echo "${CHROOT_SCRIPT_RASPIOS}" > "${CHROOT_SCRIPT_LOCATION}";
+	#echo "${CHROOT_SCRIPT_RASPIOS}" > "${CHROOT_SCRIPT_LOCATION}";
+	printf "%s" "${CHROOT_SCRIPT_RASPIOS}" > "${CHROOT_SCRIPT_LOCATION}";
 	chmod +x "${CHROOT_SCRIPT_LOCATION}";
 }
 
@@ -457,7 +484,7 @@ install_configure_setup(){
 armchroot_run_setup(){
 	# modified, return to sh once POSIX compliant
 	#LANG=C chroot "${MOUNTDIR}/ROOT" qemu-arm-static /bin/sh -c ${CHROOT_SCRIPT_LOCATION};
-	LANG=C chroot "${MOUNTDIR}/ROOT" qemu-arm-static /bin/bash -c ${CHROOT_SCRIPT_LOCATION};
+	LANG=C chroot "${MOUNTDIR}/ROOT" qemu-arm-static /bin/bash -c "${CHROOT_SCRIPT_LOCATION}";
 }
 
 
@@ -489,7 +516,8 @@ while [ "${isIncorrect}" != "0" ]; do {
 	printf "Enter firstboot password again: ";
 	read PW_FIRSTBOOT;
 	printf "\n";
-	echo "${PW_FIRSTBOOT}" | cryptsetup open --test-passphrase "${CRYPT_PARTITION}";
+	#echo "${PW_FIRSTBOOT}" | cryptsetup open --test-passphrase "${CRYPT_PARTITION}";
+	printf "%s\n" "${PW_FIRSTBOOT}"| cryptsetup open --test-passphrase "${CRYPT_PARTITION}";
 	isIncorrect=$?;
 	
 	if [ "${isIncorrect}" != "0" ]; then {
@@ -534,7 +562,7 @@ stty echo;
 
 
 # add new LUKS keyslot on encrypted partition using entered password and kill firstboot keyslot
-printf "${PW_FIRSTBOOT}\n${PW_LUKS}\n" | cryptsetup luksAddKey --force-password --type=luks2 -h sha512 --pbkdf argon2i "${CRYPT_PARTITION}";
+printf "%s\n%s\n" "${PW_FIRSTBOOT}" "${PW_LUKS}"| cryptsetup luksAddKey --force-password --type=luks2 -h sha512 --pbkdf argon2i "${CRYPT_PARTITION}";
 cryptsetup -q luksKillSlot "${CRYPT_PARTITION}" 0;
 
 # remove script startup from cmdline. oneshot functionality
@@ -555,7 +583,8 @@ reboot -f;
 '
 
 install_newLUKS(){
-	echo "${LUKS_FIRSTBOOT_SCRIPT}" > "${MOUNTDIR}/ROOT/usr/sbin/luks_firstboot.sh";
+	#echo "${LUKS_FIRSTBOOT_SCRIPT}" > "${MOUNTDIR}/ROOT/usr/sbin/luks_firstboot.sh";
+	printf "%s" "${LUKS_FIRSTBOOT_SCRIPT}" > "${MOUNTDIR}/ROOT/usr/sbin/luks_firstboot.sh";
 	chown root:root "${MOUNTDIR}/ROOT/usr/sbin/luks_firstboot.sh";
 	chmod 774 "${MOUNTDIR}/ROOT/usr/sbin/luks_firstboot.sh";
 	sed -E -e 's/(.$)/\1 init=\/usr\/sbin\/luks_firstboot.sh/' -i "${MOUNTDIR}/BOOT/cmdline.txt";
@@ -563,6 +592,36 @@ install_newLUKS(){
 }
 
 
+# custom function to run tests etc
+test_func(){
+	printf "%s" "${LUKS_FIRSTBOOT_SCRIPT}" > /tmp/wtf.sh
+	
+	local prereqs="lsblk blkid sed mount umount mke2fs mkfs.fat cryptsetup qemu-arm-static rsync kmod diceware blkdiscard";
+	local prereqLength=$(printf %s "${prereqs}"|wc -w);
+	echo $prereqLength;
+	
+	printf "%s" "${CHROOT_SCRIPT_RASPIOS}" > /tmp/chroot_test.sh
+	
+	local TARGET_BLOCK_DEVICE=/dev/mmcblk1
+	# detect if device is SD/MMC
+	if [ -z "$(printf ${TARGET_BLOCK_DEVICE} |grep mmcblk)" ]; then {
+		BOOTPART="${TARGET_BLOCK_DEVICE}1";
+		ROOTPART="${TARGET_BLOCK_DEVICE}2";
+	} ;
+	else {
+		#blkdiscard -f "${TARGET_BLOCK_DEVICE}";
+		BOOTPART="${TARGET_BLOCK_DEVICE}p1";
+		ROOTPART="${TARGET_BLOCK_DEVICE}p2";
+	} 
+	fi;
+	printf "BOOTPART: %s\nROOTPART: %s\n" "${BOOTPART}" "${ROOTPART}";
+	
+	exit 0;
+}
+
+
+# test
+#test_func;
 
 # disable accidental suspend from end user
 stty -ctlecho
@@ -604,7 +663,7 @@ armchroot_run_setup;
 armchroot;
 
 # cleanup
-echo "Syncing disk. Please wait.";
+printf "Syncing disk. Please wait.\n";
 sync;
 armchroot_cleanup;
 cleanup;
@@ -614,4 +673,5 @@ stty ctlecho;
 echo "";
 echo "Installation complete. Eject your SDcard and insert into pi.";
 echo "Your first time unlock password: ";
-echo "${LUKS_PASSPHRASE}";
+#echo "${LUKS_PASSPHRASE}";
+printf "%s\n" "${LUKS_PASSPHRASE}";
