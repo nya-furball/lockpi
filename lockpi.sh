@@ -16,7 +16,6 @@
 # TODO
 # FUCKING POSIX COMPLIANCE
 #	check for /run/shm
-#	blkid and lsblk for get_uuid()
 # Support PC distros:
 #	Debian
 #		WHERE THE FUCK IS ADIANTUM?!
@@ -49,7 +48,8 @@
 
 
 # TODO TESTS:
-
+# POSIX compliance
+#	blkid and lsblk for get_uuid()
 
 # HELPER FUNCTIONS
 checkroot(){
@@ -367,9 +367,12 @@ install_configure_disks(){
 }
 
 get_uuids(){
-	UUID_LUKS_MAP="$(blkid|grep ${LUKS_MAPPER}|sed -E -e 's/.*UUID="([0-9a-zA-Z-]+)".*/\1/')";
-	UUID_BOOTPART="$(blkid|grep ${BOOTPART}|sed -E -e 's/.*PARTUUID="([0-9a-zA-Z-]+)".*/\1/')";
-	UUID_ROOTPART="$(blkid|grep ${ROOTPART}|sed -E -e 's/.*PARTUUID="([0-9a-zA-Z-]+)".*/\1/')";
+	#UUID_LUKS_MAP="$(blkid|grep ${LUKS_MAPPER}|sed -E -e 's/.*UUID="([0-9a-zA-Z-]+)".*/\1/')";
+	#UUID_BOOTPART="$(blkid|grep ${BOOTPART}|sed -E -e 's/.*PARTUUID="([0-9a-zA-Z-]+)".*/\1/')";
+	#UUID_ROOTPART="$(blkid|grep ${ROOTPART}|sed -E -e 's/.*PARTUUID="([0-9a-zA-Z-]+)".*/\1/')";
+	UUID_LUKS_MAP="$(lsblk --noheadings -o UUID ${LUKS_MAPPER})";
+	UUID_BOOTPART="$(lsblk --noheadings -o UUID ${BOOTPART})";
+	UUID_ROOTPART="$(lsblk --noheadings -o UUID ${ROOTPART})";
 }
 
 
