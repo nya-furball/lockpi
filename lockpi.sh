@@ -202,18 +202,24 @@ detect_version(){
 USE_LUKS=1;
 LUKS_MAPPER="crypt_pi";
 format(){
-	# detect if device is SD/MMC
-	if [ -z "$(printf ${TARGET_BLOCK_DEVICE} |grep mmcblk)" ]; then {
-		BOOTPART="${TARGET_BLOCK_DEVICE}1";
-		ROOTPART="${TARGET_BLOCK_DEVICE}2";
-	} ;
-	else {
-		blkdiscard -f "${TARGET_BLOCK_DEVICE}";
-		BOOTPART="${TARGET_BLOCK_DEVICE}p1";
-		ROOTPART="${TARGET_BLOCK_DEVICE}p2";
-	} 
-	fi;
-	
+	# detect device name scheme
+	case "${TARGET_BLOCK_DEVICE}" in
+		/dev/disk/*)
+			BOOTPART="${TARGET_BLOCK_DEVICE}-part1";
+			ROOTPART="${TARGET_BLOCK_DEVICE}-part2";
+			;;
+		/dev/sd[a-z])
+			BOOTPART="${TARGET_BLOCK_DEVICE}1";
+			ROOTPART="${TARGET_BLOCK_DEVICE}2";
+			;;
+		*)
+			BOOTPART="${TARGET_BLOCK_DEVICE}p1";
+			ROOTPART="${TARGET_BLOCK_DEVICE}p2";
+			;;
+	esac
+
+	blkdiscard -f "${TARGET_BLOCK_DEVICE}";
+
 	# create partitions
 	#echo -e "o\np\nn\np\n1\n\n+200M\nt\nc\nn\np\n2\n\n\nw\n" | fdisk "${TARGET_BLOCK_DEVICE}";
 	printf "o\np\nn\np\n1\n\n+200M\nt\nc\nn\np\n2\n\n\nw\n\n" | fdisk "${TARGET_BLOCK_DEVICE}";
@@ -602,18 +608,23 @@ test_func(){
 	
 	printf "%s" "${CHROOT_SCRIPT_RASPIOS}" > /tmp/chroot_test.sh
 	
-	local TARGET_BLOCK_DEVICE=/dev/mmcblk1
-	# detect if device is SD/MMC
-	if [ -z "$(printf ${TARGET_BLOCK_DEVICE} |grep mmcblk)" ]; then {
-		BOOTPART="${TARGET_BLOCK_DEVICE}1";
-		ROOTPART="${TARGET_BLOCK_DEVICE}2";
-	} ;
-	else {
-		#blkdiscard -f "${TARGET_BLOCK_DEVICE}";
-		BOOTPART="${TARGET_BLOCK_DEVICE}p1";
-		ROOTPART="${TARGET_BLOCK_DEVICE}p2";
-	} 
-	fi;
+	#local TARGET_BLOCK_DEVICE=/dev/mmcblk1
+	local TARGET_BLOCK_DEVICE=/dev/disk/by-path/pci-0000:00:1a.0-usb-0:1.4:1.0-scsi-0:0:0:0
+	# detect device name scheme
+	case "${TARGET_BLOCK_DEVICE}" in
+		/dev/disk/*)
+			BOOTPART="${TARGET_BLOCK_DEVICE}-part1";
+			ROOTPART="${TARGET_BLOCK_DEVICE}-part2";
+			;;
+		/dev/sd[a-z])
+			BOOTPART="${TARGET_BLOCK_DEVICE}1";
+			ROOTPART="${TARGET_BLOCK_DEVICE}2";
+			;;
+		*)
+			BOOTPART="${TARGET_BLOCK_DEVICE}p1";
+			ROOTPART="${TARGET_BLOCK_DEVICE}p2";
+			;;
+	esac
 	printf "BOOTPART: %s\nROOTPART: %s\n" "${BOOTPART}" "${ROOTPART}";
 	
 	exit 0;
