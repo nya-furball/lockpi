@@ -36,11 +36,11 @@ raspios Lite 2021-03-04<br/>
 
 
 ### Notes on Distro/Target support:
-Debian Buster is not supported right now as their kernel does not support the `adiantum` cipher module.<br/>
+Debian Buster is not officially supported right now as their kernel does not support the `adiantum` cipher module. However, you can compile your own kernel with the `adiantum` module in Debian and use that. <br/>
 There is planned support for targets: debian, kali, arch.<br/><br/>
 
 ### Issues:
-Strict POSIX compliance is not achieved yet. Multiarch initrd configuration on raspios still needs to be implemented. Code needs to be cleaned up and support for other installation environments and target distros needs to be added. <br/><br/>
+~~Strict POSIX compliance is not achieved yet.~~ POSIX fixes applied, pending comprehensive testing. Multiarch initrd configuration on raspios still needs to be implemented. Code needs to be cleaned up and support for other installation environments and target distros needs to be added. <br/><br/>
 
 ### Notes on initrd Kernel version selection for raspios
 The raspios chroot script will ask you to select a kernel to use when generating an initrd. Copy and paste shown kernels according to the table below:<br/>
