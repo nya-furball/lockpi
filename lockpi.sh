@@ -51,9 +51,7 @@
 
 
 # TODO TESTS:
-# POSIX compliance
-#	blkid and lsblk for get_uuid()
-# Device path selection correctness and pattern restriction
+
 
 # HELPER FUNCTIONS
 checkroot(){
@@ -95,7 +93,7 @@ prereq(){
 	#done;
 	
 	# check if relevant programs exist
-	local prereqs="lsblk blkid sed mount umount mke2fs mkfs.fat cryptsetup qemu-arm-static rsync kmod diceware blkdiscard";
+	local prereqs="sleep lsblk blkid sed mount umount mke2fs mkfs.fat cryptsetup qemu-arm-static rsync kmod diceware blkdiscard";
 	#local prereqLength=$(echo "${prereqs}"|wc -w);
 	local prereqLength=$(printf "%s" "${prereqs}"|wc -w);
 	local currentItem="";
@@ -212,11 +210,11 @@ format(){
 			BOOTPART="${TARGET_BLOCK_DEVICE}-part1";
 			ROOTPART="${TARGET_BLOCK_DEVICE}-part2";
 			;;
-		/dev/sd[a-z])
+		/dev/sd[a-z])		# if you got more than 26 drives connected at once, it's not for your client
 			BOOTPART="${TARGET_BLOCK_DEVICE}1";
 			ROOTPART="${TARGET_BLOCK_DEVICE}2";
 			;;
-		/dev/mmcblk[0-9])
+		/dev/mmcblk[0-9])	# if you got more than 10 SD/MMC blocks attached, it's not for your client
 			BOOTPART="${TARGET_BLOCK_DEVICE}p1";
 			ROOTPART="${TARGET_BLOCK_DEVICE}p2";
 			;;
@@ -232,7 +230,10 @@ format(){
 	# create partitions
 	#echo -e "o\np\nn\np\n1\n\n+200M\nt\nc\nn\np\n2\n\n\nw\n" | fdisk "${TARGET_BLOCK_DEVICE}";
 	printf "o\np\nn\np\n1\n\n+200M\nt\nc\nn\np\n2\n\n\nw\n\n" | fdisk "${TARGET_BLOCK_DEVICE}";
-
+	
+	# sleep 1s for disks to sync up
+	sleep 1;
+	
 	mkfs.vfat "${BOOTPART}";
 	#if [ -z $(echo ${USE_LUKS}|grep 1) ]; then {
 	#	mkfs.ext4 "${ROOTPART}";
@@ -385,9 +386,9 @@ get_uuids(){
 	#UUID_LUKS_MAP="$(blkid|grep ${LUKS_MAPPER}|sed -E -e 's/.*UUID="([0-9a-zA-Z-]+)".*/\1/')";
 	#UUID_BOOTPART="$(blkid|grep ${BOOTPART}|sed -E -e 's/.*PARTUUID="([0-9a-zA-Z-]+)".*/\1/')";
 	#UUID_ROOTPART="$(blkid|grep ${ROOTPART}|sed -E -e 's/.*PARTUUID="([0-9a-zA-Z-]+)".*/\1/')";
-	UUID_LUKS_MAP="$(lsblk --noheadings -o UUID ${LUKS_MAPPER})";
-	UUID_BOOTPART="$(lsblk --noheadings -o UUID ${BOOTPART})";
-	UUID_ROOTPART="$(lsblk --noheadings -o UUID ${ROOTPART})";
+	UUID_LUKS_MAP="$(lsblk --noheadings -o UUID -d ${LUKS_MAPPER})";
+	UUID_BOOTPART="$(lsblk --noheadings -o PARTUUID -d ${BOOTPART})";
+	UUID_ROOTPART="$(lsblk --noheadings -o PARTUUID -d ${ROOTPART})";
 }
 
 
@@ -611,7 +612,7 @@ install_newLUKS(){
 
 
 # custom function to run tests etc
-#test_func(){
+test_func(){
 	printf "%s" "${LUKS_FIRSTBOOT_SCRIPT}" > /tmp/wtf.sh
 	
 	local prereqs="lsblk blkid sed mount umount mke2fs mkfs.fat cryptsetup qemu-arm-static rsync kmod diceware blkdiscard";
@@ -652,7 +653,7 @@ install_newLUKS(){
 
 
 # test
-test_func;
+#test_func;
 
 # disable accidental suspend from end user
 stty -ctlecho
