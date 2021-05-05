@@ -14,6 +14,9 @@
 # any damage incurred while using this script should you chose to use it.
 
 # TODO
+# Update cleanup procedures
+#	detect if ${MOUNTDIR} is empty
+#	stty echoctl shenanigans
 # FUCKING POSIX COMPLIANCE
 #	check for /run/shm
 # Support PC distros:
@@ -50,6 +53,7 @@
 # TODO TESTS:
 # POSIX compliance
 #	blkid and lsblk for get_uuid()
+# Device path selection correctness and pattern restriction
 
 # HELPER FUNCTIONS
 checkroot(){
@@ -204,7 +208,7 @@ LUKS_MAPPER="crypt_pi";
 format(){
 	# detect device name scheme
 	case "${TARGET_BLOCK_DEVICE}" in
-		/dev/disk/*)
+		/dev/disk/by-id/*|/dev/disk/by-path/*)
 			BOOTPART="${TARGET_BLOCK_DEVICE}-part1";
 			ROOTPART="${TARGET_BLOCK_DEVICE}-part2";
 			;;
@@ -212,9 +216,14 @@ format(){
 			BOOTPART="${TARGET_BLOCK_DEVICE}1";
 			ROOTPART="${TARGET_BLOCK_DEVICE}2";
 			;;
-		*)
+		/dev/mmcblk[0-9])
 			BOOTPART="${TARGET_BLOCK_DEVICE}p1";
 			ROOTPART="${TARGET_BLOCK_DEVICE}p2";
+			;;
+		*)
+			printf "Disk path input format not supported.\n";
+			stty ctlecho;
+			exit 1;
 			;;
 	esac
 
@@ -602,7 +611,7 @@ install_newLUKS(){
 
 
 # custom function to run tests etc
-test_func(){
+#test_func(){
 	printf "%s" "${LUKS_FIRSTBOOT_SCRIPT}" > /tmp/wtf.sh
 	
 	local prereqs="lsblk blkid sed mount umount mke2fs mkfs.fat cryptsetup qemu-arm-static rsync kmod diceware blkdiscard";
@@ -612,10 +621,13 @@ test_func(){
 	printf "%s" "${CHROOT_SCRIPT_RASPIOS}" > /tmp/chroot_test.sh
 	
 	#local TARGET_BLOCK_DEVICE=/dev/mmcblk1
-	local TARGET_BLOCK_DEVICE=/dev/disk/by-path/pci-0000:00:1a.0-usb-0:1.4:1.0-scsi-0:0:0:0
+	local TARGET_BLOCK_DEVICE="";
+	printf "TEST: TARGET_BLOCK_DEVICE=";
+	read TARGET_BLOCK_DEVICE;
+	printf '\n';
 	# detect device name scheme
 	case "${TARGET_BLOCK_DEVICE}" in
-		/dev/disk/*)
+		/dev/disk/by-id/*|/dev/disk/by-path/*)
 			BOOTPART="${TARGET_BLOCK_DEVICE}-part1";
 			ROOTPART="${TARGET_BLOCK_DEVICE}-part2";
 			;;
@@ -623,9 +635,14 @@ test_func(){
 			BOOTPART="${TARGET_BLOCK_DEVICE}1";
 			ROOTPART="${TARGET_BLOCK_DEVICE}2";
 			;;
-		*)
+		/dev/mmcblk[0-9])
 			BOOTPART="${TARGET_BLOCK_DEVICE}p1";
 			ROOTPART="${TARGET_BLOCK_DEVICE}p2";
+			;;
+		*)
+			printf "Disk path input format not supported.\n";
+			stty ctlecho;
+			exit 1;
 			;;
 	esac
 	printf "BOOTPART: %s\nROOTPART: %s\n" "${BOOTPART}" "${ROOTPART}";
@@ -635,7 +652,7 @@ test_func(){
 
 
 # test
-#test_func;
+test_func;
 
 # disable accidental suspend from end user
 stty -ctlecho
