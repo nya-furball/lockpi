@@ -652,7 +652,7 @@ install_newLUKS(){
 
 
 # test
-test_func;
+#test_func;
 
 # disable accidental suspend from end user
 stty -ctlecho
