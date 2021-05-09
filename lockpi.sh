@@ -174,6 +174,7 @@ prereq(){
 			printf "\nPrerequesites not met!";
 			printf "\nYou don't have %s.\n" "${currentItem}"; 
 			printf "Please check you have the following:\n%s\n\n"  "${prereqs}"; 
+			printf "See the section \"Prerequisites\" in the README for details.";
 			exit 1; 
 		};
 
