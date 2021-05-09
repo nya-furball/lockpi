@@ -12,7 +12,9 @@ coreutils util-linux sed e2fsprogs dosfstools cryptsetup qemu-user-static rsync 
 Use either `apt`, `dnf` or your distro's package manager to install them. <br/><br/>
 
 ### How to use it:
-Run the script using sudo, and follow the on screen directions and prompts if you are using it standalone. Here is the HELPME for arguments and options:
+Run the script using sudo. Follow the on screen directions and prompts if you are using it standalone. Write down the first time bootup passphrase when the script is done as you will need it to unlock your Pi for the first time. After your first boot, you will be forced to set a new LUKS passphrase. The first boot passphrase WILL BE INVALID AFTER YOU SET YOUR NEW PASSPHRASE! <br/><br/>
+
+Here is the HELPME for arguments and options:
 ```
 Usage:
 Standalone: (follow on screen prompts)
@@ -58,7 +60,7 @@ raspios Lite 2021-03-04<br/>
 
 
 ### Notes on Distro/Target support:
-Debian Buster is not officially supported right now as their kernel does not support the `adiantum` cipher module. However, you can compile your own kernel with the `adiantum` module in Debian and use that. <br/>
+Installing on Debian Buster is not officially supported right now as their kernel does not support the `adiantum` cipher module. However, you can compile your own kernel with the `adiantum` module in Debian and use that. <br/>
 There is planned support for targets: debian, kali, arch.<br/><br/>
 
 ### Issues:
