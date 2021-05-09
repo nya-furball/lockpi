@@ -17,12 +17,20 @@
 # Update cleanup procedures
 #	detect if ${MOUNTDIR} is empty
 #	stty echoctl shenanigans
+# Other distro support:
+#	CHROOT SCRIPTS FOR:
+#		debian
+#			unlock issues
+#		kali
+#		arch
+#	install_config
+# prompts():
+#	DISTRO prompt and empty detection
 # FUCKING POSIX COMPLIANCE
 #	check for /run/shm
 # Support PC distros:
 #	Debian
 #		WHERE THE FUCK IS ADIANTUM?!
-#		CHROOT shenanigans
 #	Arch
 #		qemu-arm-static shenanigans
 # backup configs
@@ -30,8 +38,7 @@
 #	chroot script
 # detect_version(); # detect distro version
 # parse_img(); # intelligent decompression
-# Other distro support:
-#	install_configure_setup(); # debian, kali, arch specific scripts
+
 # Tweaks:
 #	headless setup:
 #		disable tty1 and disable-bt for console
@@ -46,11 +53,96 @@
 
 # Arch comptiability
 #	fix install_arch() no crypt_pi error after unlock
-# command line args instead of prompt
-
 
 
 # TODO TESTS:
+# Other distro support:
+#	install_configure_setup(); # debian
+#	mount_disk(); # debian
+
+
+# commented out bc debian support is buggy
+#DISTRO_SUPPORTED="raspios debian";
+DISTRO_SUPPORTED="raspios";
+
+HELP="Usage:
+Standalone: (follow on screen prompts)
+./lockpi.sh
+Args:
+./lockpi.sh [ARGUMENTS]
+
+ARGUMENTS and OPTIONS
+[-h],[--help]			: Print help
+[-d {BLOCK_DEVICE}]		: target block device path (/dev/???)
+[-i {IMAGE}]			: decompressed installation image (.img)
+[-D {DISTRO}]			: distro, see DISTRO LIST for supported options
+
+DISTRO LIST:
+The following distros are supported:
+$(printf "${DISTRO_SUPPORTED}"|tr ' ' "\n" |sed -E -e 's/(^.)/\t\1/g' )
+Please type in the option EXACTLY as the list.
+
+NOTE:
+The option -D has no effect for now. 
+This option will have effect after Debian/Multi distro support.
+"
+
+
+# DO NOT EDIT HERE! USE CLI INTERFACE OR INTERACTIVE PROMPT!
+# VARS:
+IMAGE_IMG="";
+TARGET_BLOCK_DEVICE="";
+LUKS_PASSPHRASE="";
+DISTRO="";
+LUKS_MAPPER="";
+CHROOT_SCRIPT_LOCATION="";
+ERROR_LOG="";
+
+# CLI arguments interface
+# parse arguments
+# prototype:
+#	parse_args;
+ARG_ARGV="$@"
+ARG_COUNT="$#";
+parse_args(){
+	local index=1;
+	local buffer_opt="";
+	local buffer_arg="";
+	while [ ${index} -le ${ARG_COUNT} ]; do {
+		buffer_opt="$(printf "%s" "${ARG_ARGV}" | cut -f ${index} -d ' ')";
+		buffer_arg="$(printf "%s" "${ARG_ARGV}" | cut -f $((${index}+1)) -d ' ')";
+		case "${buffer_opt}" in
+			"-d")
+				# target device
+				index=$((${index}+1));
+				TARGET_BLOCK_DEVICE="${buffer_arg}";
+				;;
+			"-i")
+				# installation image
+				index=$((${index}+1));
+				IMAGE_IMG="${buffer_arg}";
+				;;
+			"-D")
+				# distro
+				index=$((${index}+1));
+				DISTRO="${buffer_arg}";
+				;;
+			"-h"|"--help")
+				# print help
+				printf "%s" "${HELP}";
+				exit 0;
+				;;
+			*)
+				printf "Incorrect/too many args. Use -h for help.\n";
+				exit 0;
+				;;
+		esac;
+		index=$((${index}+1));
+	}
+	done;
+}
+
+
 
 
 # HELPER FUNCTIONS
@@ -70,41 +162,20 @@ read_p(){
 }
 
 
-# VARS
-IMAGE=???;
-#echo "";
-
 # check for prereqs
 prereq(){
-	#local prereqs=( "lsblk" "blkid" "sed" "mount" "umount" "mke2fs" "mkfs.fat" "cryptsetup" "qemu-arm-static" );
-	# note:
-	# leaving out bsdtar as arch is not supported rn
-	
-	# simple check for now bc we're pushing the code out fast
-	#if [ ! -e /usr/bin/qemu-arm-static ]; then {
-	#	echo "qemu-arm-static not found. please install it!";
-	#	exit 1;
-	#}
-	#fi;
-	
-	#for i in "${prereqs[@]}"; do {
-	#	echo "$i";
-	#} 
-	#done;
-	
 	# check if relevant programs exist
 	local prereqs="sleep lsblk blkid sed mount umount mke2fs mkfs.fat cryptsetup qemu-arm-static rsync kmod diceware blkdiscard";
-	#local prereqLength=$(echo "${prereqs}"|wc -w);
 	local prereqLength=$(printf "%s" "${prereqs}"|wc -w);
 	local currentItem="";
-	#for i in $(seq 1 ${prereqLength}) ; do {
-	#	currentItem="$(echo ${prereqs}| cut -f $i -d' ')";
-	#	which "${currentItem}" 1>/dev/null || { printf "\nPrerequesites not met!\nYou don't have ${currentItem}.\nPlease check you have the following:\n${prereqs}\n\n"; exit 1; };
-	#}
-	#done;
+	
 	for currentItem in ${prereqs}; do {
-		#which "${currentItem}" 1>/dev/null || { printf "\nPrerequesites not met!\nYou don't have ${currentItem}.\nPlease check you have the following:\n${prereqs}\n\n"; exit 1; };
-		which "${currentItem}" 1>/dev/null || { printf "\nPrerequesites not met\!\nYou don't have %s.\nPlease check you have the following:\n%s\n\n" "${currentItem}" "${prereqs}"; exit 1; };
+		which "${currentItem}" 1>/dev/null || { 
+			printf "\nPrerequesites not met!";
+			printf "\nYou don't have %s.\n" "${currentItem}"; 
+			printf "Please check you have the following:\n%s\n\n"  "${prereqs}"; 
+			exit 1; 
+		};
 
 	}
 	done
@@ -112,23 +183,19 @@ prereq(){
 	# check if kernel supports adiantum cipher
 	# Note:
 	#	WHY THE FUCK DOES DEBIAN NOT SUPPORT ADIANTUM?!
-	#cat /proc/crypto | egrep -Eq 'name[ \t]*:[ \t]*adiantum(xchacha12,aes)';
-	kmod list|cut -f1 -d' '|grep -iq adiantum;
-	if [ $? -eq 1 ]; then {
+	kmod list|cut -f1 -d' '|grep -iq adiantum || modprobe adiantum;
+	if [ $? != 0 ]; then {
 		echo "Your kernel doesn't support the Adiantum Cipher right now.";
 		echo "Please either: "
-		echo "1: Load the kernel module 'adiantum' using modprobe";
+		echo "1: Use a supported installation distro.";
 		echo "OR";
-		echo "2: Install a kernel that supports adiantum (likely at least version 5.x).";
+		echo "2: Install a kernel that supports adiantum (likely at least version 4.21).";
 		exit 1;
 	}
 	fi;
 }
 
 # guided prompts
-IMAGE_IMG="";
-TARGET_BLOCK_DEVICE="";
-LUKS_PASSPHRASE="";
 prompts(){
 	# reminder to unfreeze
 	echo "If you accidentally pressed ctrl+S, press ctrl+Q to unfreeze.";
@@ -148,21 +215,9 @@ prompts(){
 	}
 	done;
 	
-	# passphrase entry and confirmation loop
-	#LUKS_PASSPHRASE="";
-	#local LUKS_PASSPHRASE_BUFFER="";
-	#stty -echo;
-	#while [ -z "${LUKS_PASSPHRASE}" -o "${LUKS_PASSPHRASE}" != "${LUKS_PASSPHRASE_BUFFER}" ]; do {
-	#	printf "Enter LUKS passphrase: " 
-	#	read LUKS_PASSPHRASE_BUFFER;
-	#	printf "\n";
-	#	
-	#	printf "Confirm LUKS passphrase: " 
-	#	read LUKS_PASSPHRASE;
-	#	printf "\n";
-	#}
-	#done;
-	#stty echo;
+	# force raspios bc debian support is buggy
+	DISTRO="raspios";
+	
 	
 	# Configure a firstboot LUKS keyslot with 10 word diceword passphrase (128 bit entropy)
 	LUKS_PASSPHRASE="$(diceware -w en_eff -d' ' -n 10 --no-caps)";
@@ -170,12 +225,9 @@ prompts(){
 	# confirmation
 	printf "\nInstallation target: %s\n" "${TARGET_BLOCK_DEVICE}";
 	printf "Installation image: %s\n" "${IMAGE_IMG}";
+	# commented out bc debian support is buggy
+	#printf "Installation distro: %s\n" "${DISTRO}";
 	echo "WARNING: ALL DATA WILL BE LOST ON TARGET.";
-	#confirmation "Type UPPER CASE YES to proceed: " "YES";
-	#if [ $? -eq "1" ]; then {
-	#	exit 1;
-	#}
-	#fi;
 	if ! confirmation "Type UPPER CASE YES to proceed: " "YES"; then exit 1; fi;
 }
 
@@ -193,15 +245,12 @@ confirmation(){
 
 # prototype:
 # detect_version "/PATH/TO/IMAGE";
-isDebian="0";
-isArch="0";
 detect_version(){
 	# only support raspios/raspbian for now
 	return 0;
 }
 
 # partitioning
-USE_LUKS=1;
 LUKS_MAPPER="crypt_pi";
 format(){
 	# detect device name scheme
@@ -218,6 +267,10 @@ format(){
 			BOOTPART="${TARGET_BLOCK_DEVICE}p1";
 			ROOTPART="${TARGET_BLOCK_DEVICE}p2";
 			;;
+		/dev/loop*)		# debug. used in testing phase
+			BOOTPART="${TARGET_BLOCK_DEVICE}p1";
+			ROOTPART="${TARGET_BLOCK_DEVICE}p2";
+			;;
 		*)
 			printf "Disk path input format not supported.\n";
 			stty ctlecho;
@@ -228,42 +281,25 @@ format(){
 	blkdiscard -f "${TARGET_BLOCK_DEVICE}";
 
 	# create partitions
-	#echo -e "o\np\nn\np\n1\n\n+200M\nt\nc\nn\np\n2\n\n\nw\n" | fdisk "${TARGET_BLOCK_DEVICE}";
 	printf "o\np\nn\np\n1\n\n+200M\nt\nc\nn\np\n2\n\n\nw\n\n" | fdisk "${TARGET_BLOCK_DEVICE}";
 	
 	# sleep 1s for disks to sync up
 	sleep 1;
 	
 	mkfs.vfat "${BOOTPART}";
-	#if [ -z $(echo ${USE_LUKS}|grep 1) ]; then {
-	#	mkfs.ext4 "${ROOTPART}";
-	#} ;
-	if [ "${USE_LUKS}" != 1 ]; then {
-		mkfs.ext4 "${ROOTPART}";
-	} ;
-	else {
-		#LUKS_MAPPER="$(echo ${ROOTPART}|sed -E -e 's/[/]dev[/]*//g' -e 's/(^.)/luks_\1/')";
 
-		#cryptsetup -y -v luksFormat --type=luks2 --sector-size=4096 -c xchacha12,aes-adiantum-plain64 -s 256 -h sha512 "${ROOTPART}";
-		#echo ${LUKS_PASSPHRASE} | cryptsetup luksFormat --force-password --type=luks2 --sector-size=4096 -c xchacha12,aes-adiantum-plain64 -s 256 -h sha512 "${ROOTPART}";
-		#echo ${LUKS_PASSPHRASE} | cryptsetup luksFormat --force-password --type=luks2 --sector-size=4096 -c xchacha12,aes-adiantum-plain64 -s 256 -h sha512 --pbkdf argon2i --pbkdf-memory 100000 --pbkdf-parallel 1 --pbkdf-force-iterations 4 "${ROOTPART}";
-		
-		# we are formatting to the lowest denominator: pi0
-		# 128 bit entropy passphrase *should* mitigate issues.
-		# (in quotes bc cryptography is not the author's forte.)
-		# argon2i params:
-		#	timecost = 4; most common settings from benchmarks across x86 and pi
-		#	memory = 200MB; pi0/w only has 256MB and we have initrd
-		#	parallel = 1; pi0/w only has 1 core. more than 1 will FAIL to unlock.
-		#echo ${LUKS_PASSPHRASE} | cryptsetup luksFormat --force-password --type=luks2 --sector-size=4096 -c xchacha12,aes-adiantum-plain64 -s 256 -h sha512 --pbkdf argon2i --pbkdf-memory 200000 --pbkdf-parallel 1 --pbkdf-force-iterations 4 "${ROOTPART}";
-		printf "%s\n" "${LUKS_PASSPHRASE}"| cryptsetup luksFormat --force-password --type=luks2 --sector-size=4096 -c xchacha12,aes-adiantum-plain64 -s 256 -h sha512 --pbkdf argon2i --pbkdf-memory 200000 --pbkdf-parallel 1 --pbkdf-force-iterations 4 "${ROOTPART}";
-		
-		#cryptsetup open "${ROOTPART}" "${LUKS_MAPPER}";
-		#echo ${LUKS_PASSPHRASE} | cryptsetup open "${ROOTPART}" "${LUKS_MAPPER}";
-		printf "%s\n" "${LUKS_PASSPHRASE}"| cryptsetup open "${ROOTPART}" "${LUKS_MAPPER}";
-		mkfs.ext4 "/dev/mapper/${LUKS_MAPPER}";
-	}
-	fi;
+	# we are formatting to the lowest denominator: pi0
+	# 128 bit entropy passphrase *should* mitigate issues.
+	# (in quotes bc cryptography is not the author's forte.)
+	# argon2i params:
+	#	timecost = 4; most common settings from benchmarks across x86 and pi
+	#	memory = 200MB; pi0/w only has 256MB and we have initrd
+	#	parallel = 1; pi0/w only has 1 core. more than 1 will FAIL to unlock.
+	printf "%s\n" "${LUKS_PASSPHRASE}"| cryptsetup luksFormat --force-password --type=luks2 --sector-size=4096 -c xchacha20,aes-adiantum-plain64 -s 256 -h sha512 --pbkdf argon2i --pbkdf-memory 100000 --pbkdf-parallel 1 --pbkdf-force-iterations 4 "${ROOTPART}";
+	
+	# format mapped LUKS partition as ext4
+	printf "%s\n" "${LUKS_PASSPHRASE}"| cryptsetup open "${ROOTPART}" "${LUKS_MAPPER}";
+	mkfs.ext4 "/dev/mapper/${LUKS_MAPPER}";
 }
 
 mount_disk(){
@@ -271,16 +307,7 @@ mount_disk(){
 	mkdir "${MOUNTDIR}/BOOT" "${MOUNTDIR}/ROOT";
 	chmod og-rwx "${MOUNTDIR}/BOOT" "${MOUNTDIR}/ROOT";
 	mount "${BOOTPART}" "${MOUNTDIR}/BOOT";
-	#if [ -z $(echo ${USE_LUKS}|grep 1) ]; then {
-	#	mount "${ROOTPART}" "${MOUNTDIR}/ROOT";
-	#} ;
-	if [ "${USE_LUKS}" != 1 ]; then {
-		mount "${ROOTPART}" "${MOUNTDIR}/ROOT";
-	} ;
-	else {
-		mount "/dev/mapper/${LUKS_MAPPER}" "${MOUNTDIR}/ROOT";
-	}
-	fi;
+	mount "/dev/mapper/${LUKS_MAPPER}" "${MOUNTDIR}/ROOT";
 }
 
 # arm chroot prep and cleanup
@@ -290,40 +317,59 @@ armchroot_prep(){
 	mount --bind /dev/shm "${MOUNTDIR}/ROOT/dev/shm";
 	mount -t sysfs sysfs "${MOUNTDIR}/ROOT/sys";
 	mount -t proc proc "${MOUNTDIR}/ROOT/proc";
-	#if [ -z "$(echo $isDebian|grep 1)" ]; then {
+	
+	#if [ "${isDebian}" != 1 ]; then {
 	#	mount --bind "${MOUNTDIR}/BOOT" "${MOUNTDIR}/ROOT/boot";
 	#} ;
-	if [ "${isDebian}" != 1 ]; then {
-		mount --bind "${MOUNTDIR}/BOOT" "${MOUNTDIR}/ROOT/boot";
-	} ;
-	else {
-		mount --bind "${MOUNTDIR}/BOOT" "${MOUNTDIR}/ROOT/boot/firmware";
-	}
-	fi;
+	#else {
+	#	mount --bind "${MOUNTDIR}/BOOT" "${MOUNTDIR}/ROOT/boot/firmware";
+	#}
+	#fi;
+	
+	case "${DISTRO}" in
+		"debian")
+			mount --bind "${MOUNTDIR}/BOOT" "${MOUNTDIR}/ROOT/boot/firmware";
+			;;
+		*)
+			mount --bind "${MOUNTDIR}/BOOT" "${MOUNTDIR}/ROOT/boot";
+			;;
+	esac
+	
+	
 	mv "${MOUNTDIR}/ROOT/etc/resolv.conf" "${MOUNTDIR}/ROOT/etc/resolv.conf_bak";
 	cp -L /etc/resolv.conf "${MOUNTDIR}/ROOT/etc/resolv.conf";
 	cp "$(which qemu-arm-static)" "${MOUNTDIR}/ROOT/usr/bin";
 }
+
 armchroot_cleanup(){
 	umount "${MOUNTDIR}/ROOT/dev/pts";
 	umount "${MOUNTDIR}/ROOT/dev/shm";
 	umount "${MOUNTDIR}/ROOT/dev";
 	umount "${MOUNTDIR}/ROOT/sys";
 	umount "${MOUNTDIR}/ROOT/proc";
-	#if [ -z "$(echo $isDebian|grep 1)" ]; then {
+
+	#if [ "${isDebian}" != 1 ]; then {
 	#	umount "${MOUNTDIR}/ROOT/boot";
 	#} ;
-	if [ "${isDebian}" != 1 ]; then {
-		umount "${MOUNTDIR}/ROOT/boot";
-	} ;
-	else {
-		umount "${MOUNTDIR}/ROOT/boot/firmware";
-	}
-	fi;
+	#else {
+	#	umount "${MOUNTDIR}/ROOT/boot/firmware";
+	#}
+	#fi;
+	
+	case "${DISTRO}" in
+		"debian")
+			umount "${MOUNTDIR}/ROOT/boot/firmware";
+			;;
+		*)
+			umount "${MOUNTDIR}/ROOT/boot";
+			;;
+	esac
+	
 	rm "${MOUNTDIR}/ROOT/etc/resolv.conf";
 	mv "${MOUNTDIR}/ROOT/etc/resolv.conf_bak" "${MOUNTDIR}/ROOT/etc/resolv.conf";
 	rm "${MOUNTDIR}/ROOT/usr/bin/qemu-arm-static";
 }
+
 armchroot(){
 	#echo "Dropping into a shell on installation target.";
 	#echo 'Type "exit" to end customization in chroot shell: ';
@@ -348,6 +394,7 @@ parse_img(){
 }
 
 # copy distro disk image files
+ERROR_LOG="/tmp/lockpi_rsync.log";
 install_img(){
 	# mount .img file as loop device
 	LOOPDEV="$(losetup -v -P --show -f ${IMAGE_IMG})";
@@ -356,8 +403,13 @@ install_img(){
 	mount "${LOOPDEV}p2" "${MOUNTDIR}/ROOT_IMG";
 	
 	# copy distro to target disk
-	rsync -ahHAXxq "${MOUNTDIR}/ROOT_IMG/" "${MOUNTDIR}/ROOT/";
-	rsync -ahq "${MOUNTDIR}/BOOT_IMG/" "${MOUNTDIR}/BOOT/";
+	rsync -ahHAXxq "${MOUNTDIR}/ROOT_IMG/" "${MOUNTDIR}/ROOT/" 2>"${ERROR_LOG}";
+	rsync -ahq "${MOUNTDIR}/BOOT_IMG/" "${MOUNTDIR}/BOOT/" 2>"${ERROR_LOG}";
+	if [ "$(cat "${ERROR_LOG}" 2>/dev/null)" != "" ]; then { 
+		printf "There were errors in rsync copy.\n";
+		printf "See %s for errors" "${ERROR_LOG}";
+	} 
+	fi;
 	
 	# cleanup
 	umount "${LOOPDEV}p1";
@@ -378,15 +430,11 @@ install_configure_disks(){
 	sed -E -e "s/.*([ \t]+\/[ \t]+.*)/UUID=${UUID_LUKS_MAP}\1/" -i "${MOUNTDIR}/ROOT/etc/fstab";
 	sed -E -e "s/.*([ \t]+\/boot[/]*.*[ \t]+.*)/PARTUUID=${UUID_BOOTPART}\1/" -i "${MOUNTDIR}/ROOT/etc/fstab";
 	# crypttab
-	#echo -e "${LUKS_MAPPER}\tPARTUUID=${UUID_ROOTPART}\tnone\tluks" |tee "${MOUNTDIR}/ROOT/etc/crypttab";
 	printf "%s\tPARTUUID=%s\tnone\tluks\n" "${LUKS_MAPPER}" "${UUID_ROOTPART}" |tee "${MOUNTDIR}/ROOT/etc/crypttab";
 }
 
 get_uuids(){
-	#UUID_LUKS_MAP="$(blkid|grep ${LUKS_MAPPER}|sed -E -e 's/.*UUID="([0-9a-zA-Z-]+)".*/\1/')";
-	#UUID_BOOTPART="$(blkid|grep ${BOOTPART}|sed -E -e 's/.*PARTUUID="([0-9a-zA-Z-]+)".*/\1/')";
-	#UUID_ROOTPART="$(blkid|grep ${ROOTPART}|sed -E -e 's/.*PARTUUID="([0-9a-zA-Z-]+)".*/\1/')";
-	UUID_LUKS_MAP="$(lsblk --noheadings -o UUID -d ${LUKS_MAPPER})";
+	UUID_LUKS_MAP="$(lsblk --noheadings -o UUID -d /dev/mapper/${LUKS_MAPPER})";
 	UUID_BOOTPART="$(lsblk --noheadings -o PARTUUID -d ${BOOTPART})";
 	UUID_ROOTPART="$(lsblk --noheadings -o PARTUUID -d ${ROOTPART})";
 }
@@ -397,8 +445,11 @@ get_uuids(){
 cleanup(){
 	umount "${MOUNTDIR}/BOOT/";
 	umount "${MOUNTDIR}/ROOT/";
+	umount "${MOUNTDIR}/BOOT_IMG";
+	umount "${MOUNTDIR}/ROOT_IMG";
+	losetup -d "${LOOPDEV}";
 	cryptsetup close "${LUKS_MAPPER}";
-	rmdir "${MOUNTDIR}/ROOT" "${MOUNTDIR}/BOOT";
+	rmdir "${MOUNTDIR}/ROOT" "${MOUNTDIR}/BOOT" "${MOUNTDIR}/ROOT_IMG" "${MOUNTDIR}/BOOT_IMG" ;
 	rm "${CHROOT_SCRIPT_LOCATION}";
 }
 
@@ -418,10 +469,10 @@ cleanup_interrupt(){
 
 configure_traps(){
 	# trap signals so user cannot accidentally exit
-	trap 'cleanup_interrupt' 1;	# SIGHUP
-	trap 'cleanup_interrupt' 2;	# SIGINT, ctrl + c
-	trap 'cleanup_interrupt' 3;	# SIGQUIT, ctrl + \
-	trap 'cleanup_interrupt' 15;	# SIGTERM
+	trap 'cleanup_interrupt' HUP;	# SIGHUP
+	trap 'cleanup_interrupt' INT;	# SIGINT, ctrl + c
+	trap 'cleanup_interrupt' QUIT;	# SIGQUIT, ctrl + \
+	trap 'cleanup_interrupt' TERM;	# SIGTERM
 }
 
 
@@ -429,8 +480,13 @@ configure_traps(){
 # distro specific scripts
 CHROOT_SCRIPT_RASPIOS='#!/bin/sh
 
-# return to sh once POSIX compliant
-##!/bin/bash
+# trap signals so user cannot accidentally exit
+stty -ctlecho
+trap "" HUP;	# SIGHUP
+trap "" INT;	# SIGINT, ctrl + c
+trap "" QUIT;	# SIGQUIT, ctrl + \
+trap "" TERM;	# SIGTERM
+trap "" TSTP;	# SIGTSTP, ctrl + Z
 
 # TODO:
 # Auto setup initramfs images and different versions using initramfs_config.txt
@@ -471,6 +527,35 @@ mkinitramfs -o /boot/initramfs.gz "${VERSION}";
 # disable initial resize
 sed -E -e "s/ [!-z]*init_resize.sh//" -i /boot/cmdline.txt;
 rm /etc/init.d/resize*fs_once /etc/rc3.d/S01resize*fs_once;
+
+# cleanup
+stty ctlecho
+'
+
+CHROOT_SCRIPT_DEBIAN='#!/bin/sh
+
+# trap signals so user cannot accidentally exit
+stty -ctlecho
+trap "" HUP;	# SIGHUP
+trap "" INT;	# SIGINT, ctrl + c
+trap "" QUIT;	# SIGQUIT, ctrl + \
+trap "" TERM;	# SIGTERM
+trap "" TSTP;	# SIGTSTP, ctrl + Z
+
+# cryptsetup
+#	there a prompt for keyboard locale
+apt-get update; apt-get install cryptsetup busybox rsync initramfs-tools -y; 
+printf "CRYPTSETUP=y\n" >> /etc/cryptsetup-initramfs/conf-hook;
+for i in /etc/default/raspi*-firmware; do
+	printf "ROOTPART=\"/dev/mapper/crypt_pi cryptdevice=PARTUUID=UUID_ROOTPART:crypt\"\n" >> "$i";
+done;
+update-initramfs -u;
+
+# disable resize
+systemctl disable rpi-resizerootfs.service
+
+# cleanup
+stty ctlecho
 '
 
 CHROOT_SCRIPT_ARCH='#!/bin/sh
@@ -490,20 +575,39 @@ pkill -i gpg;
 '
 
 
-# used with version detection. 
-# Only raspios supported for now
+# used with version selection.
 CHROOT_SCRIPT_LOCATION="/dev/shm/distro_install.sh";
 install_configure_setup(){
 	#echo "${CHROOT_SCRIPT_RASPIOS}" > "${CHROOT_SCRIPT_LOCATION}";
-	printf "%s" "${CHROOT_SCRIPT_RASPIOS}" > "${CHROOT_SCRIPT_LOCATION}";
+	#printf "%s" "${CHROOT_SCRIPT_RASPIOS}" > "${CHROOT_SCRIPT_LOCATION}";
+	#chmod +x "${CHROOT_SCRIPT_LOCATION}";
+	
+	local script="";
+	case "${DISTRO}" in
+		"raspios")
+			script="${CHROOT_SCRIPT_RASPIOS}";
+			;;
+		"debian")
+			printf "Target distro ${DISTRO} is not supported for now.\n";
+			#script="$(printf "%s" "${CHROOT_SCRIPT_DEBIAN}" |sed -E -e "s/UUID_ROOTPART/${UUID_ROOTPART}/")";
+			#sed -E -e 's/' -i 
+			;;
+		"arch")
+			printf "Target distro ${DISTRO} is not supported for now.\n";
+			cleanup_interrupt;
+			;;
+		"kali")
+			printf "Target distro ${DISTRO} is not supported for now.\n";
+			cleanup_interrupt;
+			;;
+	esac
+	printf "%s" "${script}" > "${CHROOT_SCRIPT_LOCATION}";
 	chmod +x "${CHROOT_SCRIPT_LOCATION}";
 }
 
 # run distro specific chroot setup
 armchroot_run_setup(){
-	# modified, return to sh once POSIX compliant
-	#LANG=C chroot "${MOUNTDIR}/ROOT" qemu-arm-static /bin/sh -c ${CHROOT_SCRIPT_LOCATION};
-	LANG=C chroot "${MOUNTDIR}/ROOT" qemu-arm-static /bin/bash -c "${CHROOT_SCRIPT_LOCATION}";
+	LANG=C chroot "${MOUNTDIR}/ROOT" qemu-arm-static /bin/sh -c ${CHROOT_SCRIPT_LOCATION};
 }
 
 
@@ -512,11 +616,11 @@ armchroot_run_setup(){
 LUKS_FIRSTBOOT_SCRIPT='#!/bin/sh
 # trap signals so user cannot accidentally exit
 stty -ctlecho
-trap "" 1;	# SIGHUP
-trap "" 2;	# SIGINT, ctrl + c
-trap "" 3;	# SIGQUIT, ctrl + \
-trap "" 15;	# SIGTERM
-trap "" 20;	# SIGTSTP, ctrl + Z
+trap "" HUP;	# SIGHUP
+trap "" INT;	# SIGINT, ctrl + c
+trap "" QUIT;	# SIGQUIT, ctrl + \
+trap "" TERM;	# SIGTERM
+trap "" TSTP;	# SIGTSTP, ctrl + Z
 
 # force user into setting up new LUKS keyslot on the hardware
 CRYPT_PARTITION=REPLACEMENT_CRYPTPART;
@@ -585,7 +689,7 @@ printf "%s\n%s\n" "${PW_FIRSTBOOT}" "${PW_LUKS}"| cryptsetup luksAddKey --force-
 cryptsetup -q luksKillSlot "${CRYPT_PARTITION}" 0;
 
 # remove script startup from cmdline. oneshot functionality
-sed -E -e "s/[ \t]+init=\/usr\/sbin\/luks_firstboot.sh//g" -i /boot/cmdline.txt;
+sed -E -e "s/[ \t]+init=\/usr\/sbin\/luks_firstboot.sh//g" -i /boot/cmdline.txt -i /boot/firmware/cmdline.txt;
 
 echo "";
 echo "FIRST BOOT PASSWORD WILL BE INVALID AFTER REBOOT!";
@@ -652,12 +756,17 @@ test_func(){
 }
 
 
+# MAIN FUNCTION STARTS BELOW!
+
 # test
 #test_func;
 
+# parse CLI arguments and options
+parse_args;
+
 # disable accidental suspend from end user
 stty -ctlecho
-trap '' 20;	# SIGTSTP, ctrl + Z
+trap '' TSTP;	# SIGTSTP, ctrl + Z
 
 # main();
 checkroot;
@@ -681,9 +790,9 @@ install_img;
 #read -p "inspect arch install";
 
 install_configure_disks;
+
 # distro specific setup
 install_configure_setup;
-install_newLUKS;
 
 # debug: testing archinstall
 #echo "${CHROOT_SCRIPT_ARCH}" > "${CHROOT_SCRIPT_LOCATION}";
@@ -691,8 +800,21 @@ install_newLUKS;
 
 # chroot and run distro scripts in chroot
 armchroot_prep;
+
+# trap signals so signals in CHROOT cannot interrupt script
+trap '' HUP;	# SIGHUP
+trap '' INT;	# SIGINT, ctrl + c
+trap '' QUIT;	# SIGQUIT, ctrl + \
+trap '' TERM;	# SIGTERM
+
 armchroot_run_setup;
 armchroot;
+
+# reconfigure traps
+configure_traps;
+
+# install first boot LUKS rekey script
+install_newLUKS;
 
 # cleanup
 printf "Syncing disk. Please wait.\n";
