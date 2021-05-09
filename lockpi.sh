@@ -405,7 +405,7 @@ install_img(){
 	
 	# copy distro to target disk
 	rsync -ahHAXxq "${MOUNTDIR}/ROOT_IMG/" "${MOUNTDIR}/ROOT/" 2>"${ERROR_LOG}";
-	rsync -ahq "${MOUNTDIR}/BOOT_IMG/" "${MOUNTDIR}/BOOT/" 2>"${ERROR_LOG}";
+	rsync -ahq "${MOUNTDIR}/BOOT_IMG/" "${MOUNTDIR}/BOOT/" 2>>"${ERROR_LOG}";
 	if [ "$(cat "${ERROR_LOG}" 2>/dev/null)" != "" ]; then { 
 		printf "There were errors in rsync copy.\n";
 		printf "See %s for errors" "${ERROR_LOG}";
@@ -634,7 +634,8 @@ echo "";
 
 # get correct firstboot pw to add keyslot later
 PW_FIRSTBOOT="";
-isIncorrect=1;
+#isIncorrect=1;
+isIncorrect=0; # skip get first boot pw from user, read directly from file
 stty -echo;
 while [ "${isIncorrect}" != "0" ]; do {
 	printf "Enter firstboot password again: ";
@@ -656,6 +657,7 @@ while [ "${isIncorrect}" != "0" ]; do {
 done;
 stty echo;
 
+PW_FIRSTBOOT="$(cat /firstboot.key)"
 
 # get new LUKS pw
 echo "";
@@ -692,6 +694,9 @@ cryptsetup -q luksKillSlot "${CRYPT_PARTITION}" 0;
 # remove script startup from cmdline. oneshot functionality
 sed -E -e "s/[ \t]+init=\/usr\/sbin\/luks_firstboot.sh//g" -i /boot/cmdline.txt -i /boot/firmware/cmdline.txt;
 
+# remove firstboot key on encrypted volume
+rm /firstboot.key;
+
 echo "";
 echo "FIRST BOOT PASSWORD WILL BE INVALID AFTER REBOOT!";
 echo "USE THE NEW CONFIGURED PASSWORD TO UNLOCK YOUR PI!";
@@ -708,9 +713,12 @@ reboot -f;
 
 install_newLUKS(){
 	#echo "${LUKS_FIRSTBOOT_SCRIPT}" > "${MOUNTDIR}/ROOT/usr/sbin/luks_firstboot.sh";
+	printf "%s" "${LUKS_PASSPHRASE}" > "${MOUNTDIR}/ROOT/firstboot.key";
 	printf "%s" "${LUKS_FIRSTBOOT_SCRIPT}" > "${MOUNTDIR}/ROOT/usr/sbin/luks_firstboot.sh";
 	chown root:root "${MOUNTDIR}/ROOT/usr/sbin/luks_firstboot.sh";
 	chmod 774 "${MOUNTDIR}/ROOT/usr/sbin/luks_firstboot.sh";
+	chown root:root "${MOUNTDIR}/ROOT/firstboot.key";
+	chmod 700 "${MOUNTDIR}/ROOT/firstboot.key";
 	sed -E -e 's/(.$)/\1 init=\/usr\/sbin\/luks_firstboot.sh/' -i "${MOUNTDIR}/BOOT/cmdline.txt";
 	sed -E -e "s/REPLACEMENT_CRYPTPART/\/dev\/disk\/by-partuuid\/${UUID_ROOTPART}/" -i "${MOUNTDIR}/ROOT/usr/sbin/luks_firstboot.sh";
 }
